@@ -8,5 +8,5 @@ use crate::{
 pub fn public_routes() -> Router<AppState> {
     Router::new()
         .route("/reports/public", get(list_public_reports))
-        .route("/reports/public/:id", get(get_public_report))
+        .route("/reports/public/{id}", get(get_public_report))
 }
