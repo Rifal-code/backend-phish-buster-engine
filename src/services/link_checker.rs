@@ -10,7 +10,7 @@ pub struct LinkCheckerService {
 
 impl LinkCheckerService {
     pub fn new(api_key: String, api_url: String) -> Self {
-        // PERBAIKAN 1: Menyamar sebagai Browser Google Chrome agar tidak diblokir oleh website
+        // Menyamar sebagai Browser Google Chrome agar tidak diblokir oleh sistem anti-bot website
         let client = Client::builder()
             .timeout(Duration::from_secs(20))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -20,12 +20,14 @@ impl LinkCheckerService {
         Self { client, api_key, api_url }
     }
 
+    /// Fungsi bantuan untuk mengambil konten website terlebih dahulu
     async fn fetch_website_content(&self, url: &str) -> String {
         match self.client.get(url).send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     match response.text().await {
                         Ok(text) => {
+                            // Ambil maksimal 5000 karakter pertama agar tidak memberatkan request ke Gemini
                             let max_len = std::cmp::min(text.len(), 5000);
                             text[..max_len].to_string()
                         },
@@ -39,13 +41,16 @@ impl LinkCheckerService {
         }
     }
 
+    /// Call the Gemini API and parse its response into a flat analysis object.
     pub async fn check_url(&self, url: &str) -> Result<Value, LinkCheckerError> {
         if self.api_url.is_empty() || self.api_key.is_empty() {
             return Err(LinkCheckerError::NotConfigured);
         }
 
+        // 1. Ambil konten website terlebih dahulu dari URL
         let website_content = self.fetch_website_content(url).await;
 
+        // 2. Gabungkan URL dan konten web ke dalam prompt untuk Gemini
         let prompt = format!(
             "You are a cybersecurity URL analysis engine. \
             Analyze the following URL and its website HTML content for threats such as phishing, scam, malware, judol (illegal gambling), or other malicious activity. \
@@ -71,9 +76,16 @@ impl LinkCheckerService {
                 "contents": [{
                     "parts": [{ "text": prompt }]
                 }],
+                // MATIKAN SENSOR agar Gemini tidak tiba-tiba berhenti bicara saat baca web berbahaya
+                "safetySettings": [
+                    { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                    { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                    { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+                    { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+                ],
                 "generationConfig": {
                     "temperature": 0.0,
-                    "maxOutputTokens": 1024, // PERBAIKAN 2: Dinaikkan agar balasan JSON tidak terpotong
+                    "maxOutputTokens": 2048, // Kapasitas jawaban diperbesar
                     "responseMimeType": "application/json"
                 }
             }))
@@ -109,7 +121,7 @@ impl LinkCheckerService {
             .trim()
             .to_string();
 
-        // PERBAIKAN 3: Ekstraksi JSON yang jauh lebih aman (Mencari tanda kurung kurawal pertama { dan terakhir })
+        // 3. Ekstrak hanya bagian JSON-nya saja secara ekstrem (cari { pertama dan } terakhir)
         if let Some(start_idx) = text.find('{') {
             if let Some(end_idx) = text.rfind('}') {
                 if start_idx <= end_idx {
