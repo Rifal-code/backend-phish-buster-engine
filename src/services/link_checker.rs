@@ -27,9 +27,10 @@ impl LinkCheckerService {
                 if response.status().is_success() {
                     match response.text().await {
                         Ok(text) => {
-                            // Ambil maksimal 5000 karakter pertama agar tidak memberatkan request ke Gemini
-                            let max_len = std::cmp::min(text.len(), 5000);
-                            text[..max_len].to_string()
+                            // PERBAIKAN DI SINI:
+                            // Mengambil maksimal 5000 karakter (bukan byte) secara aman 
+                            // untuk mencegah "panic" saat memotong karakter unicode/emoji
+                            text.chars().take(5000).collect::<String>()
                         },
                         Err(_) => "Error: Failed to read website body.".to_string()
                     }
