@@ -21,6 +21,15 @@ use state::AppState;
 async fn main() {
     dotenv().ok();
 
+    // 1. Ambil PORT dari Google Cloud dan langsung satukan ke format socket address
+    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    let addr_str = format!("0.0.0.0:{}", port);
+    
+    // Gunakan std::net::TcpListener bawaan atau langsung bind string-nya
+    let listener = tokio::net::TcpListener::bind(&addr_str)
+        .await
+        .expect("Failed to bind port");
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
@@ -35,6 +44,7 @@ async fn main() {
     let link_checker_api_key = env::var("LINK_CHECKER_API_KEY").unwrap_or_default();
     let link_checker_api_url = env::var("LINK_CHECKER_API_URL").unwrap_or_default();
 
+    // 2. Koneksi ke Database Aiven
     let pool = MySqlPoolOptions::new()
         .max_connections(10)
         .connect(&database_url)
@@ -43,7 +53,7 @@ async fn main() {
 
     tracing::info!("Database connected successfully");
 
-    // Run migrations
+    // 3. Jalankan Migrasi setelah port siap
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
@@ -63,7 +73,7 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Protected routes — all require valid JWT
+    // Protected routes
     let protected = Router::new()
         .merge(routes::auth::protected_routes())
         .merge(routes::reports::protected_routes())
@@ -73,11 +83,8 @@ async fn main() {
             middleware::auth::require_auth,
         ));
 
-    // Public routes — no authentication needed
-    let public = Router::new()
-        .merge(routes::auth::public_routes())
-        .merge(routes::public::public_routes());
-
+    // Public routes
+    let public = routes::auth::public_routes();
 
     let app = Router::new()
         .merge(protected)
@@ -86,12 +93,9 @@ async fn main() {
         .layer(cors)
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
-        .await
-        .expect("Failed to bind port 3000");
+    tracing::info!("Server running at http://{}", addr_str);
 
-    tracing::info!("Server running at http://0.0.0.0:3000");
-
+    // 4. Jalankan server Axum dengan passing ownership listener secara bersih
     axum::serve(listener, app)
         .await
         .expect("Server error");
