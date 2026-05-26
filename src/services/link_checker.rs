@@ -1,6 +1,6 @@
-use serde_json::Value;
 use std::time::Duration;
-use use_reqwest::Client; // Sesuaikan dengan path crate reqwest di project-mu (misal: reqwest::Client)
+use reqwest::Client; // Memperbaiki typo 'use use_reqwest::Client'
+use serde_json::Value;
 
 pub struct LinkCheckerService {
     client: Client,
@@ -20,12 +20,11 @@ impl LinkCheckerService {
 
     /// Call the Gemini API and parse its response into a flat analysis object.
     /// Returns a JSON value with at minimum: { status, score, reason }.
-    pub async fn check_url(&self, url: &str) -> Result<serde_json::Value, LinkCheckerError> {
+    pub async fn check_url(&self, url: &str) -> Result<Value, LinkCheckerError> {
         if self.api_url.is_empty() || self.api_key.is_empty() {
             return Err(LinkCheckerError::NotConfigured);
         }
 
-        // Prompt diperketat agar aturan data type sangat jelas untuk AI
         let prompt = format!(
             "You are a cybersecurity URL analysis engine. \
             Analyze the following URL for threats such as phishing, scam, malware, judol (illegal gambling), or other malicious activity. \
@@ -40,7 +39,6 @@ impl LinkCheckerService {
 
         let endpoint = format!("{}?key={}", self.api_url, self.api_key);
 
-        // Mengirimkan request dengan tambahan responseMimeType dan temperature 0.0
         let response = self
             .client
             .post(&endpoint)
@@ -50,9 +48,9 @@ impl LinkCheckerService {
                     "parts": [{ "text": prompt }]
                 }],
                 "generationConfig": {
-                    "temperature": 0.0, // Set ke 0.0 agar hasil konsisten/tidak berubah-ubah
+                    "temperature": 0.0,
                     "maxOutputTokens": 256,
-                    "responseMimeType": "application/json" // Memaksa Gemini API mengembalikan JSON murni
+                    "responseMimeType": "application/json"
                 }
             }))
             .send()
@@ -75,13 +73,11 @@ impl LinkCheckerService {
             )));
         }
 
-        // Ambil respons mentah dari Gemini
-        let raw: serde_json::Value = response
+        let raw: Value = response
             .json()
             .await
             .map_err(|e| LinkCheckerError::ParseError(e.to_string()))?;
 
-        // Ekstrak teks di dalam struktur response Gemini
         let text = raw
             .pointer("/candidates/0/content/parts/0/text")
             .and_then(|v| v.as_str())
@@ -89,9 +85,7 @@ impl LinkCheckerService {
             .trim()
             .to_string();
 
-        // Karena sudah menggunakan responseMimeType, text di bawah ini dijamin berupa 
-        // string JSON valid langsung dari API tanpa perlu dibersihkan dari markdown (```json)
-        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|_| {
+        let parsed: Value = serde_json::from_str(&text).unwrap_or_else(|_| {
             tracing::warn!("Gemini returned non-JSON text unexpectedly: {}", text);
             serde_json::json!({
                 "status": "unknown",
